@@ -28,6 +28,14 @@ input,select,textarea{width:100%;padding:12px;border-radius:11px;border:1px soli
 <div class="card"><div class="ico">🧰</div><b>Фильтры</b><div class="muted" id="filterStatus">Ведите историю замен</div></div>
 <div class="card"><div class="ico">🛞</div><b>Тормоза</b><div class="muted">Контроль по осмотру</div></div>
 <div class="card"><div class="ico">📅</div><b>Следующее ТО</b><div class="muted" id="nextStatus">Пока не задано</div></div></div>
+<div class="panel" id="gpsPanel">
+<div class="row"><b>Пробег по GPS</b><span id="gpsStatus" class="pill">Остановлен</span></div>
+<div style="font-size:30px;font-weight:850;margin:9px 0 3px" id="gpsDistance">0,00 км</div>
+<div class="hint" id="gpsInfo">GPS ещё не запущен. Для расчёта принимаются координаты с точностью не хуже 100 м.</div>
+<div class="actions" style="margin-top:12px"><button class="primary" id="gpsStart" onclick="startGps()">▶ Начать поездку</button><button class="secondary" id="gpsPause" onclick="pauseGps()" disabled>Пауза</button></div>
+<button class="secondary" id="gpsFinish" style="width:100%;margin-top:9px" onclick="finishGps()" disabled>Завершить и добавить к пробегу</button>
+<p class="hint" style="margin-bottom:0">На iPhone GPS-учёт работает, пока приложение открыто на экране. При сворачивании или блокировке экрана запись ставится на паузу. Не используйте телефон во время движения.</p>
+</div>
 <div class="panel"><div class="row"><b>Ближайшие работы</b><span class="muted">По вашим записям</span></div><div id="upcoming" class="empty">Добавьте первую запись обслуживания.</div></div>
 <div class="actions"><button class="primary" onclick="openAdd()">＋ Добавить обслуживание</button><button class="secondary" onclick="showView('history')">История работ</button></div>
 <p class="hint">Сроки рассчитываются только по введённым вами записям и интервалам. Приложение не подключено к автомобилю.</p></section>
@@ -50,9 +58,64 @@ input,select,textarea{width:100%;padding:12px;border-radius:11px;border:1px soli
 </main><nav>
 <button class="active" data-view="home" onclick="showView('home')"><strong>⌂</strong>Главная</button><button data-view="history" onclick="showView('history')"><strong>▤</strong>История</button><button data-view="catalog" onclick="showView('catalog')"><strong>⚙</strong>Расходники</button><button data-view="settings" onclick="showView('settings')"><strong>☰</strong>Настройки</button></nav>
 <script>
-const KEY='largusGarage_v1';const $=id=>document.getElementById(id);const fmt=n=>Number(n||0).toLocaleString('ru-RU');
-let data=JSON.parse(localStorage.getItem(KEY)||'null')||{mileage:241060,records:[],parts:[],intervals:{oil:10000,air:15000,cabin:10000}};
+const KEY='largusGarage_v1';const $=id=>document.getElementById(id);const fmt=n=>Number(n||0).toLocaleString('ru-RU',{maximumFractionDigits:1});
+let data=JSON.parse(localStorage.getItem(KEY)||'null')||{mileage:241060,records:[],parts:[],intervals:{oil:10000,air:15000,cabin:10000}};data.parts=data.parts||[];data.records=data.records||[];data.gpsTrip=data.gpsTrip||{meters:0};data.gpsTrip.active=false;let gpsWatchId=null,lastGpsFix=null,gpsAccuracy=null,gpsStatusText='GPS не запущен';
 function persist(){localStorage.setItem(KEY,JSON.stringify(data));render()}
+function saveGps(){localStorage.setItem(KEY,JSON.stringify(data));renderGps()}
+function startGps(){
+ if(!navigator.geolocation){alert('Браузер не поддерживает GPS.');return}
+ if(gpsWatchId!==null)return;
+ data.gpsTrip.active=true;lastGpsFix=null;gpsStatusText='Ожидаю сигнал GPS…';saveGps();
+ gpsWatchId=navigator.geolocation.watchPosition(onGpsPosition,onGpsError,{enableHighAccuracy:true,maximumAge:3000,timeout:20000});
+}
+function onGpsPosition(pos){
+ const c=pos.coords,acc=Number(c.accuracy)||999;
+ if(acc>100){lastGpsFix=null;gpsAccuracy=acc;gpsStatusText='Неточная позиция ±'+Math.round(acc)+' м — жду сигнал лучше';renderGps();return}
+ const point={lat:c.latitude,lon:c.longitude,accuracy:acc,time:pos.timestamp||Date.now()};
+ gpsAccuracy=acc;
+ if(lastGpsFix){
+   const dt=(point.time-lastGpsFix.time)/1000;
+   if(dt>0&&dt<=120){
+     const rad=x=>x*Math.PI/180;
+     const dLat=rad(point.lat-lastGpsFix.lat),dLon=rad(point.lon-lastGpsFix.lon);
+     const a=Math.sin(dLat/2)**2+Math.cos(rad(lastGpsFix.lat))*Math.cos(rad(point.lat))*Math.sin(dLon/2)**2;
+     const meters=6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+     const minimum=Math.max(8,Math.min(25,(point.accuracy+lastGpsFix.accuracy)*0.2));
+     const speed=meters/dt;
+     if(meters>=minimum&&speed<=55){data.gpsTrip.meters+=meters}
+     else if(speed>55){gpsStatusText='Скачок GPS отброшен'}
+   }else if(dt>120){gpsStatusText='Большой разрыв сигнала — продолжаю с новой точки'}
+ }
+ lastGpsFix=point;
+ if(!gpsStatusText.startsWith('Скачок')&&!gpsStatusText.startsWith('Большой'))gpsStatusText='GPS работает · точность ±'+Math.round(acc)+' м';
+ saveGps();
+}
+function onGpsError(err){
+ const messages={1:'Нет доступа к геолокации. Разреши доступ в настройках Safari.',2:'Не удалось определить местоположение. Проверь GPS и связь.',3:'GPS не ответил вовремя. Попробуй ещё раз.'};
+ gpsStatusText=messages[err.code]||'Ошибка GPS';pauseGps(false);renderGps();alert(gpsStatusText);
+}
+function pauseGps(update=true){
+ if(gpsWatchId!==null){navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=null}
+ data.gpsTrip.active=false;lastGpsFix=null;
+ if(update){gpsStatusText='Пауза';saveGps()}
+}
+function finishGps(){
+ pauseGps(false);
+ const km=Math.round((data.gpsTrip.meters/1000)*10)/10;
+ if(km<0.1){gpsStatusText='Поездка слишком короткая для добавления';renderGps();alert('Пока накоплено меньше 0,1 км.');return}
+ if(!confirm('GPS оценил поездку примерно в '+km.toLocaleString('ru-RU',{maximumFractionDigits:1})+' км. Прибавить к пробегу автомобиля?')){gpsStatusText='Поездка остановлена, расстояние сохранено';saveGps();return}
+ data.mileage=Math.round((Number(data.mileage)+km)*10)/10;
+ data.records.push({id:Date.now(),type:'Пробег по GPS',date:localDate(),km:data.mileage,cost:0,next:0,months:0,note:'GPS-оценка поездки: +'+km.toLocaleString('ru-RU',{maximumFractionDigits:1})+' км. Точность принятых координат не хуже 100 м.'});
+ data.gpsTrip={meters:0,active:false};gpsStatusText='Поездка добавлена к пробегу';persist();showView('home');
+}
+function renderGps(){
+ const trip=data.gpsTrip||{meters:0,active:false};
+ if(!$('gpsDistance'))return;
+ $('gpsDistance').textContent=(trip.meters/1000).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' км';
+ $('gpsStatus').textContent=trip.active?'Запись':(trip.meters>0?'Пауза':'Остановлен');
+ $('gpsInfo').textContent=gpsStatusText+(gpsAccuracy?' · последняя точность ±'+Math.round(gpsAccuracy)+' м':'');
+ $('gpsStart').disabled=!!trip.active;$('gpsPause').disabled=!trip.active;$('gpsFinish').disabled=trip.meters<100;
+}
 function showView(id){document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===id));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===id));if(id==='add'){ $('workKm').value=data.mileage;$('workDate').value=localDate()}}
 function localDate(){const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)}
 function editMileage(){let v=prompt('Укажи текущий пробег, км',data.mileage);if(v===null)return;v=Number(v);if(Number.isFinite(v)&&v>=0){data.mileage=v;persist()}else alert('Введи корректный пробег')}
@@ -76,5 +139,5 @@ $('historyList').innerHTML=data.records.length?[...data.records].sort((a,b)=>b.k
 $('partsList').innerHTML=data.parts.length?data.parts.map(p=>'<div class="item"><div class="row"><b>'+esc(p.type)+'</b><button class="dangerbtn" onclick="removePart('+p.id+')">Удалить</button></div><div class="muted">'+esc(p.brand)+' '+esc(p.code)+'</div>'+(p.note?'<div class="hint">'+esc(p.note)+'</div>':'')+'</div>').join(''):'<div class="empty">Каталог пока пуст.</div>';
 if($('oilInterval')){$('oilInterval').value=data.intervals.oil??10000;$('airInterval').value=data.intervals.air??15000;$('cabinInterval').value=data.intervals.cabin??10000}
 }
-render();if('serviceWorker'in navigator&&location.protocol.startsWith('http'))window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+render();renderGps();document.addEventListener('visibilitychange',()=>{if(document.hidden&&data.gpsTrip.active){pauseGps(false);gpsStatusText='Пауза: приложение свёрнуто или экран заблокирован';saveGps()}});window.addEventListener('pagehide',()=>{if(gpsWatchId!==null){navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=null}if(data.gpsTrip){data.gpsTrip.active=false;data.gpsTrip.lastFix=null;localStorage.setItem(KEY,JSON.stringify(data))}});if('serviceWorker'in navigator&&location.protocol.startsWith('http'))window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 </script></body></html>
