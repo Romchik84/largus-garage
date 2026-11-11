@@ -1,0 +1,18 @@
+{
+  "name": "Largus Garage",
+  "short_name": "Largus Garage",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0d131a",
+  "theme_color": "#111820",
+  "description": "Бортовой журнал обслуживания Lada Largus",
+  "icons": [
+    {
+      "src": "icons/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
