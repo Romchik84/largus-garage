@@ -80,7 +80,7 @@ function onGpsPosition(pos){
      const dLat=rad(point.lat-lastGpsFix.lat),dLon=rad(point.lon-lastGpsFix.lon);
      const a=Math.sin(dLat/2)**2+Math.cos(rad(lastGpsFix.lat))*Math.cos(rad(point.lat))*Math.sin(dLon/2)**2;
      const meters=6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-     const minimum=Math.max(8,Math.min(25,(point.accuracy+lastGpsFix.accuracy)*0.2));
+     const minimum=Math.max(3,Math.min(20,(point.accuracy+lastGpsFix.accuracy)*0.12));
      const speed=meters/dt;
      if(meters>=minimum&&speed<=55){data.gpsTrip.meters+=meters}
      else if(speed>55){gpsStatusText='Скачок GPS отброшен'}

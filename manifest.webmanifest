@@ -6,7 +6,7 @@
   "display": "standalone",
   "background_color": "#0d131a",
   "theme_color": "#111820",
-  "description": "Бортовой журнал и GPS-оценка пробега Lada Largus",
+  "description": "Бортовой журнал обслуживания Lada Largus",
   "icons": [
     {
       "src": "icons/icon-180.png",
